@@ -8,7 +8,7 @@ RUNS    ?= 20
 
 .PHONY: help up down restart logs status health build \
         init-manifest daily-report weekly-report summary \
-        last-snapshot-count clean-volumes
+        last-snapshot-count morning-check clean-volumes
 
 help: ## Show all available commands
 	@echo ""
@@ -55,6 +55,9 @@ health: ## Check the API health endpoint
 
 last-snapshot-count: ## Show how many market snapshots are stored in the DB
 	@curl -s http://localhost:8000/snapshots/latest | python3 -m json.tool | head -20
+
+morning-check: ## Run the daily morning health and status check
+	@python3 scripts/morning_check.py
 
 # ── Research commands ─────────────────────────────────────────────────────────
 
