@@ -21,7 +21,10 @@ async def main() -> None:
 
             for m in markets:
                 tokens = m.get("tokens", [])
-                yes_token = next((t for t in tokens if t.get("outcome", "").upper() == "YES"), None)
+                yes_token = next((t for t in tokens if t.get("outcome", "").upper() in ["YES", "UP", "ABOVE"]), None)
+                if not yes_token and tokens:
+                    yes_token = tokens[0] # Fallback to first outcome for binary markets
+                
                 if not yes_token:
                     continue
                 
