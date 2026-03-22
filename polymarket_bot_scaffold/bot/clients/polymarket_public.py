@@ -3,11 +3,12 @@ import httpx
 from bot.core.config import get_settings
 
 class PolymarketPublicClient:
-    def _is_target_market(self, question: str) -> bool:
-        q = question.lower()
-        has_eth = "eth" in q or "ethereum" in q
-        has_15 = "15m" in q or "15 min" in q or "15-min" in q or "15 minute" in q
-        has_up_down = "up" in q or "down" in q or "above" in q or "below" in q
+    def _is_target_market(self, market: dict) -> bool:
+        q = market.get("question", "").lower()
+        s = market.get("slug", "").lower()
+        has_eth = "eth" in q or "ethereum" in q or "eth" in s
+        has_15 = "15m" in q or "15 min" in q or "15-min" in q or "15 minute" in q or "15m" in s
+        has_up_down = "up" in q or "down" in q or "above" in q or "below" in q or "updown" in s
         return has_eth and has_15 and has_up_down
 
     async def list_active_markets(self, limit: int = 20) -> list[dict]:
@@ -22,8 +23,7 @@ class PolymarketPublicClient:
             import json
             result = []
             for m in markets:
-                question = m.get("question", "")
-                if not self._is_target_market(question):
+                if not self._is_target_market(m):
                     continue
 
                 outcomes_str = m.get("outcomes", "[]")
