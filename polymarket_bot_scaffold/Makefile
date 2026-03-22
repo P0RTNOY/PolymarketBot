@@ -59,6 +59,9 @@ last-snapshot-count: ## Show how many market snapshots are stored in the DB
 morning-check: ## Run the daily morning health and status check
 	@$(COMPOSE) exec api python scripts/morning_check.py
 
+monitor: ## Run morning-check in a continuous loop every 60 seconds
+	@while true; do clear; $(MAKE) morning-check; echo ""; echo "Monitoring rig... (Ctrl+C to stop)"; sleep 60; done
+
 # ── Research commands ─────────────────────────────────────────────────────────
 
 init-manifest: ## Freeze the experiment config (run ONCE before collecting data)
