@@ -57,7 +57,7 @@ last-snapshot-count: ## Show how many market snapshots are stored in the DB
 	@curl -s http://localhost:8000/snapshots/latest | python3 -m json.tool | head -20
 
 morning-check: ## Run the daily morning health and status check
-	@python3 scripts/morning_check.py
+	@$(COMPOSE) exec api python scripts/morning_check.py
 
 # ── Research commands ─────────────────────────────────────────────────────────
 

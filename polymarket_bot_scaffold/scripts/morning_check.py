@@ -39,7 +39,8 @@ def check_containers():
             for line in lines:
                 print(f"  {line}")
     except FileNotFoundError:
-        print("  ❌  `docker` command not found.")
+        print("  ℹ  Skipping container check (running inside Docker wrapper).")
+        print("     Use `make status` on the host machine to see container states.")
     except subprocess.CalledProcessError as e:
         print("  ❌  Failed to get container status:")
         print(f"      {e.stderr.strip()}")
