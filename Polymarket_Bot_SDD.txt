@@ -1,0 +1,246 @@
+Software Design Document
+Polymarket Scanner, Paper Trader, and Live Execution Bot
+Production-style SDD for a Python MVP
+
+Prepared for
+Omer Portnoy
+System name
+Polymarket Bot
+Version
+1.0
+Date
+2026-03-16
+
+Purpose: design a controlled, auditable system that discovers promising Polymarket binary markets, scores them with a model, paper-trades them first, and only then enables tightly constrained live execution. The architecture is intentionally risk-first and treats real trading as a later rollout stage.
+1. System overview
+The system is a multi-service Python application that continuously ingests market data, computes signals, simulates trades, and optionally routes approved signals to a live execution service. The design separates market-data collection from trading authority so that public scanning can scale without exposing credentials.
+The target use case is short-duration binary markets such as “ETH up or down in 15 minutes.” The first release is intentionally narrow: one market family, one strategy, one risk manager, and one paper-trading path before live rollout.
+2. Goals and non-goals
+Area
+In scope
+Out of scope for MVP
+Trading workflow
+Scanner, signals, paper trader, live executor skeleton
+Aggressive multi-strategy portfolio manager
+Data
+Public REST + WebSocket market data, normalized snapshots
+Massive historical warehousing and full research platform
+Execution
+Limit-order oriented submission path with guardrails
+High-frequency latency arbitrage
+Operations
+Auditability, health endpoints, risk controls
+Rich frontend dashboards or mobile app
+
+3. Architectural principles
+Safety-first: live trading stays disabled by default, with paper mode enabled first.
+Single-writer execution: only the execution service may handle private keys and authenticated order placement.
+Observable state: every signal, risk decision, order, and fill should be persisted or logged.
+Composable strategy engine: each strategy consumes the same normalized market snapshot contract.
+Narrow first release: one exchange, one market family, one strategy, one report.
+4. High-level component architecture
+Component
+Primary responsibility
+Key outputs
+Market Scanner
+Discover active markets, fetch order-book data, maintain fresh snapshots
+Normalized market snapshots
+Strategy Engine
+Estimate fair probability and compute tradable edge
+Trade signals
+Risk Manager
+Apply hard and soft checks before an order can exist
+Approved / rejected decisions
+Paper Trader
+Simulate order placement and fills with conservative assumptions
+Paper orders, positions, PnL
+Live Executor
+Submit real orders through authenticated APIs
+Live order events and fills
+Portfolio Service
+Track exposure, average cost, and realized/unrealized PnL
+Position state
+Control API
+Expose health, config, preview, and operator actions
+Operational endpoints
+
+5. Logical flow
+1. Scanner fetches active target markets and updates local snapshot state.
+2. Strategy engine reads a fresh snapshot and computes model probability versus market probability.
+3. Risk manager validates spread, depth, edge, size, panic-stop state, and configuration limits.
+4. Paper trader or live executor consumes only approved signals.
+5. Portfolio and analytics services update state and publish operator-visible metrics.
+6. Deployment view
+Deployment unit
+Technology
+Notes
+API service
+FastAPI + Uvicorn
+Control plane; no private trading in the public route layer
+Scanner worker
+Async Python worker
+Periodic polling plus future WebSocket streaming
+Signal worker
+Async Python worker
+Runs strategy evaluation continuously
+Paper worker
+Async Python worker
+Default trading mode during validation
+Execution worker
+Async Python worker
+Server-side only; credential-restricted
+Database
+SQLite for scaffold / PostgreSQL in production
+SQLite is fine for local MVP; move to Postgres before serious usage
+Redis
+Optional queue / cache
+Useful once multiple workers need shared coordination
+
+7. Service contracts
+7.1 Market snapshot
+A market snapshot is the canonical input to strategies. It must contain the latest best bid/ask, midpoint, spread, visible depth, market identifier, token identifier, time-to-expiry, and optional external reference features such as short-horizon return and realized volatility.
+7.2 Trade signal
+A trade signal is generated only by a strategy. It carries strategy name, side, market probability, model probability, edge, confidence, suggested price, suggested size, and a human-readable reason code. Downstream services must treat the signal as a proposal, not authority.
+7.3 Order intent
+An order intent is created only after risk approval. It is the smallest trade artifact that either the paper trader or live executor may act on.
+8. Risk model
+Control
+Default scaffold value
+Reason
+Live trading enabled
+False
+Prevents accidental real orders
+Paper trading enabled
+True
+Supports early validation
+Max order size
+$10
+Caps single-trade damage
+Max spread
+0.02
+Avoids very inefficient quotes
+Min visible depth
+$50
+Avoids thin markets for even small size
+Min edge
+0.04
+Requires a positive modeled margin
+Panic stop
+False by default, operator-switchable
+Hard stop for all trading activity
+
+9. Data model
+The production design uses a relational database with explicit tables for markets, signals, orders, fills, positions, risk events, and health checks. The scaffold ships with a simplified SQLAlchemy model layer for markets and signals so the project can start immediately while leaving room for Alembic migrations.
+Table
+Purpose
+Critical fields
+markets
+Canonical metadata for tradable markets
+id, condition_id, question, category, active, closed
+outcome_tokens
+Maps markets to YES/NO token IDs
+market_id, token_id, outcome_name
+market_snapshots
+Time-series view of top-of-book state
+best_bid, best_ask, midpoint, spread, depth, timestamp
+signals
+Persisted strategy outputs
+market_prob, model_prob, edge, side, suggested_size
+paper_orders / live_orders
+Order lifecycle
+status, price, size, timestamps, external order id
+fills
+Execution facts
+fill_ts, price, shares, fee
+positions
+Current exposure and realized PnL
+net_shares, avg_cost, realized_pnl
+
+10. API surface
+Endpoint
+Purpose
+GET /health
+Service liveness and current safety toggles
+GET /markets
+Preview active markets from the scanner client
+GET /signals/preview
+Return a sample strategy decision using an example snapshot
+GET /positions
+Return current positions once wired to persistence
+GET /config
+Expose current runtime risk thresholds
+
+11. Strategy design for MVP
+The first strategy is ETHDirection15mStrategy. It is intentionally simple and transparent. It converts a small set of short-horizon features into a directional probability and compares that estimate against the market midpoint. The starter implementation uses a logistic-style score derived from recent return and realized volatility. This is not production alpha; it is a safe placeholder that demonstrates the end-to-end contract.
+Success criteria for the first strategy are operational rather than financial: deterministic outputs, stable scoring, explainable decisions, and a working audit trail through signal generation and paper order creation.
+12. Failure modes and mitigations
+Failure mode
+Impact
+Mitigation
+Stale market data
+Bad signals or poor execution
+Timestamp every snapshot and reject stale inputs
+Thin order book
+Slippage and non-representative marks
+Require minimum visible depth and cap size
+Configuration error
+Unsafe live behavior
+Keep live disabled by default and expose health/config endpoints
+Credential leakage
+Severe account risk
+Restrict secrets to the execution worker only
+Model overconfidence
+Losses from false edge
+Paper trade first and compare predicted vs realized edge
+Worker outage
+Scanner or executor stops silently
+Health checks, logs, and optional alerting
+
+13. Security considerations
+Store all private keys and trading secrets outside the codebase. Prefer environment variables or a secret manager.
+Do not expose live trading controls in a public frontend without authentication and role checks.
+Log decisions, but never log raw secrets, passphrases, or signed payloads in full.
+Keep paper trading and live trading separate at both the config layer and database/reporting layer.
+Honor exchange compliance, geoblocking, and terms of service before enabling live execution.
+14. Observability
+The control API provides health visibility immediately. The next production step is structured logging plus metrics such as signal count, approval rate, fill rate, average spread at entry, unrealized PnL, realized PnL, stale-snapshot rejection count, and WebSocket disconnect count.
+15. Testing strategy
+Layer
+What to test first
+Unit
+Risk checks, strategy scoring, helper functions
+Integration
+API routes, scanner client stubs, database session lifecycle
+Paper simulation
+Order creation path, fill assumptions, position updates
+Pre-live
+Dry-run execution path with credentials disabled or mocked
+
+16. MVP roadmap
+Phase 1 - Replace the public client stubs with real market-data REST calls and persist snapshots.
+Phase 2 - Add WebSocket ingestion and snapshot freshness rules.
+Phase 3 - Introduce Alembic migrations and PostgreSQL support for serious testing.
+Phase 4 - Implement conservative paper fill simulation and PnL reporting.
+Phase 5 - Wire authenticated execution behind a separate execution worker and tiny-size rollout controls.
+17. Appendix: scaffold-to-production mapping
+Scaffold file
+Why it exists
+apps/api/main.py
+Bootstraps the operator-facing FastAPI control plane
+apps/worker/scanner.py
+Demonstrates the market scanner loop
+apps/worker/signal_engine.py
+Shows how strategies consume snapshots
+apps/worker/paper_trader.py
+Turns approved signals into simulated orders
+bot/clients/polymarket_public.py
+Single place to replace with real public endpoints
+bot/clients/polymarket_trading.py
+Single place to add authenticated live order logic
+bot/risk/manager.py
+Central guardrail layer
+bot/execution/types.py
+Typed contracts for snapshot, signal, and order intent
+
+18. Approval summary
+This design is suitable as a controlled Python MVP and is intentionally biased toward safety, clarity, and auditability over speed. The included scaffold is meant to be copied directly into your repository and extended in small, testable phases.

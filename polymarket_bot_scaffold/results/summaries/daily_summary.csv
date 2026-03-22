@@ -1,0 +1,3 @@
+date,strategy_version,runs,base_seed,signals_generated,approved_count,orders_placed,filled_count,fill_rate_pct,win_rate_pct,trades_count,mean_pnl,median_pnl,best_pnl,worst_pnl,pnl_stdev,average_fill_delay_secs,settlement_mode,config_hash,config_label
+2026-03-22,eth_direction_15m_v1,5,42,0,0,0,0,0.0,0.0,5,0.0,0.0,0.0,0.0,0.0,0.0,midpoint_fallback,d15c28e161e25283,MISMATCH_d15c28e1
+2026-03-22,eth_direction_15m_v2,5,42,0,0,0,0,0.0,0.0,5,0.0,0.0,0.0,0.0,0.0,0.0,midpoint_fallback,d15c28e161e25283,MISMATCH_d15c28e1

@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# pytest
+.pytest_cache/
+
+# Environments
+.env
+
+# Database
+polymarket_bot.db
+*.sqlite3
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Results / Data (we likely don't want to commit all JSONs/CSVs if they get large)
+results/daily/*.json
+results/daily/*.csv
+results/weekly/*.json
+results/weekly/*.csv
+# Note: Keeping results/manifests and results/summaries in source control is good practice for research
