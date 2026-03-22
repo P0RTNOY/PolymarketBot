@@ -1,18 +1,115 @@
 version: "3.9"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Polymarket ETH 15m Research Stack — Local Development / Research Mode
+#
+# Run with:   docker compose up -d
+# Stop with:  docker compose down
+# Logs:       docker compose logs -f
+#
+# IMPORTANT: This stack runs locally on your laptop.
+# Data collection stops if the machine sleeps, shuts down, or Docker stops.
+# Keep the machine awake and Docker running for the full 5–7 day experiment.
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-base: &base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  volumes:
+    # Mount source for live code edits (no image rebuild needed during frozen experiment)
+    - .:/app
+    # Persistent SQLite database — survives container restarts
+    - db_data:/app/data
+    # Persistent results (manifests, daily outputs, rolling summary)
+    - results_data:/app/results
+  env_file:
+    - .env
+  # Restart automatically unless explicitly stopped
+  restart: unless-stopped
+  # Write logs with timestamps; container names make grepping easy
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "20m"
+      max-file: "5"
+
 services:
+  # ──────────────────────────────────────────────────────────────────────────
+  # API — FastAPI HTTP server for monitoring and reports
+  # ──────────────────────────────────────────────────────────────────────────
   api:
-    image: python:3.12-slim
-    working_dir: /app
-    volumes:
-      - .:/app
-    env_file:
-      - .env
-    command: bash -lc "pip install -e . && uvicorn apps.api.main:app --host 0.0.0.0 --port 8000"
+    <<: *base
+    container_name: polybot_api
+    command: >
+      bash -c "python -c 'from bot.data.models import Base; from bot.data.session import engine; Base.metadata.create_all(engine)' &&
+               uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --log-level info"
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
 
-  redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
+  # ──────────────────────────────────────────────────────────────────────────
+  # Scanner — Polls Polymarket API, stores MarketSnapshot rows every N seconds
+  # ──────────────────────────────────────────────────────────────────────────
+  scanner:
+    <<: *base
+    container_name: polybot_scanner
+    command: python -m apps.worker.scanner
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Signal Engine — Runs v1 and v2 strategies, writes SignalRecord rows
+  # ──────────────────────────────────────────────────────────────────────────
+  signal_engine:
+    <<: *base
+    container_name: polybot_signal_engine
+    command: python -m apps.worker.signal_engine
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Paper Trader — Evaluates signals through RiskManager, places simulated orders
+  # ──────────────────────────────────────────────────────────────────────────
+  paper_trader:
+    <<: *base
+    container_name: polybot_paper_trader
+    command: python -m apps.worker.paper_trader
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Settlement Engine — Resolves completed markets, records final PnL
+  # ──────────────────────────────────────────────────────────────────────────
+  settlement_engine:
+    <<: *base
+    container_name: polybot_settlement_engine
+    command: python -m apps.worker.settlement_engine
+    depends_on:
+      api:
+        condition: service_healthy
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Volumes — Data persists across container restarts
+# ─────────────────────────────────────────────────────────────────────────────
+volumes:
+  db_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/data
+  results_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/results

@@ -44,3 +44,10 @@ results/daily/*.csv
 results/weekly/*.json
 results/weekly/*.csv
 # Note: Keeping results/manifests and results/summaries in source control is good practice for research
+
+# Database on-disk storage (bind-mounted in Docker)
+data/*.db
+data/*.sqlite3
+
+# Docker build cache
+.docker/
