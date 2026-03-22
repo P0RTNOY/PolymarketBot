@@ -11,6 +11,10 @@
 >
 > **Bug fixes only.** Any config change requires re-running `make init-manifest`.
 
+> [!IMPORTANT]
+> **Data Baseline Note:** Due to Polymarket API changes, early collection data prior to the scanner fix is invalid. The clean, trustworthy **Phase 11.2 Experiment Data Collection Window strictly begins at:**
+> **`2026-03-22 12:04 UTC`**
+> Do not include any snapshots or signals prior to this timestamp in your rolling summaries.
 ---
 
 ## Local environment constraints
