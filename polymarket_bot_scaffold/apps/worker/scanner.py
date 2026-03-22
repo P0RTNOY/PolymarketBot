@@ -9,11 +9,15 @@ async def main() -> None:
     market_repo = MarketRepository()
     snapshot_repo = SnapshotRepository()
     
+    print("[scanner] Starting Polymarket scanner loop...", flush=True)
     while True:
         try:
+            print("[scanner] Fetching active markets...", flush=True)
             markets = await client.list_active_markets(limit=5)
+            print(f"[scanner] Returning {len(markets)} active matching markets from API", flush=True)
+            
             market_repo.upsert_many(markets)
-            print(f"[scanner] stored {len(markets)} markets")
+            print(f"[scanner] stored {len(markets)} markets in DB", flush=True)
 
             for m in markets:
                 tokens = m.get("tokens", [])

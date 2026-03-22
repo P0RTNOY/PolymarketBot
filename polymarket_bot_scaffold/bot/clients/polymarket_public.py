@@ -13,7 +13,8 @@ class PolymarketPublicClient:
     async def list_active_markets(self, limit: int = 20) -> list[dict]:
         async with httpx.AsyncClient() as client:
             # Fetch a large batch to ensure we find our narrow target universe
-            res = await client.get(f"https://gamma-api.polymarket.com/markets?limit=1000&active=true&closed=false")
+            # using order=createdAt&ascending=false to get the NEWEST markets (15m markets exist here)
+            res = await client.get(f"https://gamma-api.polymarket.com/markets?limit=500&active=true&closed=false&order=createdAt&ascending=false")
             res.raise_for_status()
             data = res.json()
             markets = data if isinstance(data, list) else data.get("data", [])
