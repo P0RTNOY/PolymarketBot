@@ -19,8 +19,13 @@ async def main() -> None:
             market_repo.upsert_many(markets)
             print(f"[scanner] stored {len(markets)} markets in DB", flush=True)
 
+            snapshot_attempts = 0
+            snapshot_success = 0
+
             for m in markets:
                 tokens = m.get("tokens", [])
+                print(f"[scanner] Market {m.get('id')}: derived {len(tokens)} outcome tokens", flush=True)
+                
                 yes_token = next((t for t in tokens if t.get("outcome", "").upper() in ["YES", "UP", "ABOVE"]), None)
                 if not yes_token and tokens:
                     yes_token = tokens[0] # Fallback to first outcome for binary markets
@@ -32,12 +37,17 @@ async def main() -> None:
                 if not token_id:
                     continue
                 
-                book = await client.fetch_book(token_id)
-                book["market_id"] = m["id"]
-                book["timestamp"] = datetime.now(timezone.utc)
-                snapshot_repo.insert_snapshot(book)
+                try:
+                    snapshot_attempts += 1
+                    book = await client.fetch_book(token_id)
+                    book["market_id"] = m["id"]
+                    book["timestamp"] = datetime.now(timezone.utc)
+                    snapshot_repo.insert_snapshot(book)
+                    snapshot_success += 1
+                except Exception as e:
+                    print(f"[scanner] error fetching book for token {token_id}: {e}", flush=True)
                 
-            print("[scanner] snapshot cycle complete")
+            print(f"[scanner] snapshot cycle complete: attempted {snapshot_attempts}, written {snapshot_success}", flush=True)
             
         except Exception as e:
             print(f"[scanner] error: {e}")

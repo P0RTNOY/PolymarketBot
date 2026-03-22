@@ -26,11 +26,12 @@ class PolymarketPublicClient:
                 if not self._is_target_market(m):
                     continue
 
-                outcomes_str = m.get("outcomes", "[]")
-                clob_token_ids_str = m.get("clobTokenIds", "[]")
+                outcomes_raw = m.get("outcomes", [])
+                clob_token_ids_raw = m.get("clobTokenIds", [])
+                
                 try:
-                    outcomes = json.loads(outcomes_str)
-                    clob_token_ids = json.loads(clob_token_ids_str)
+                    outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
+                    clob_token_ids = json.loads(clob_token_ids_raw) if isinstance(clob_token_ids_raw, str) else clob_token_ids_raw
                 except Exception:
                     outcomes = []
                     clob_token_ids = []
