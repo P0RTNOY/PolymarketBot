@@ -38,16 +38,12 @@ polymarket_bot.db
 ehthumbs.db
 Thumbs.db
 
-# Results / Data (we likely don't want to commit all JSONs/CSVs if they get large)
-results/daily/*.json
-results/daily/*.csv
-results/weekly/*.json
-results/weekly/*.csv
-# Note: Keeping results/manifests and results/summaries in source control is good practice for research
-
-# Database on-disk storage (bind-mounted in Docker)
-data/*.db
-data/*.sqlite3
-
-# Docker build cache
-.docker/
+# Results / Data
+# Keep manifests and summaries in git (small, important for experiment tracking)
+# Exclude large daily/weekly JSON/CSV exports
+results/daily/
+results/weekly/
+results/exports/
+# Keep these:
+# results/manifests/  ← tracked
+# results/summaries/  ← tracked

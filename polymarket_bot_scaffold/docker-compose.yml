@@ -1,115 +1,102 @@
 version: "3.9"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Polymarket ETH 15m Research Stack — Local Development / Research Mode
+# ────────────────────────────────────────────────────────────────────────────
+# Polymarket ETH 15m Research Stack — LOCAL MODE
 #
-# Run with:   docker compose up -d
-# Stop with:  docker compose down
-# Logs:       docker compose logs -f
+# PURPOSE: Run continuously on your laptop for 5–7 days to collect paper
+#          trading data for the v1 vs v2 experiment.
 #
-# IMPORTANT: This stack runs locally on your laptop.
-# Data collection stops if the machine sleeps, shuts down, or Docker stops.
-# Keep the machine awake and Docker running for the full 5–7 day experiment.
-# ─────────────────────────────────────────────────────────────────────────────
+# IMPORTANT — LOCAL ENVIRONMENT CONSTRAINTS:
+#   • This stack runs on your machine, NOT in the cloud.
+#   • Data collection stops the moment Docker stops or the laptop sleeps.
+#   • Keep your laptop POWERED ON and Docker RUNNING during the experiment.
+#   • Disable Sleep / Auto-hibernate in macOS System Settings → Battery.
+#   • The SQLite database is stored in a named volume so it survives
+#     'docker compose restart' and normal container crashes.
+#
+# START:   make up      or  docker compose up -d
+# STOP:    make down    or  docker compose down
+# LOGS:    make logs    or  docker compose logs -f
+# STATUS:  make status  or  docker compose ps
+# ────────────────────────────────────────────────────────────────────────────
 
-x-base: &base
+x-worker-base: &worker-base
   build:
     context: .
     dockerfile: Dockerfile
   volumes:
-    # Mount source for live code edits (no image rebuild needed during frozen experiment)
-    - .:/app
-    # Persistent SQLite database — survives container restarts
-    - db_data:/app/data
-    # Persistent results (manifests, daily outputs, rolling summary)
-    - results_data:/app/results
+    - .:/app                        # live code mount (no rebuild needed for code changes)
+    - db_data:/app/data             # persistent SQLite storage
+    - ./results:/app/results        # research output files (manifests, daily, summaries)
   env_file:
     - .env
-  # Restart automatically unless explicitly stopped
-  restart: unless-stopped
-  # Write logs with timestamps; container names make grepping easy
-  logging:
-    driver: "json-file"
-    options:
-      max-size: "20m"
-      max-file: "5"
+  environment:
+    # Override the default relative DB path so SQLite writes to the named volume
+    DATABASE_URL: "sqlite+pysqlite:////app/data/polymarket_bot.db"
+  restart: unless-stopped           # auto-restart on crash; stop only with 'make down'
+  depends_on:
+    - api
 
 services:
-  # ──────────────────────────────────────────────────────────────────────────
-  # API — FastAPI HTTP server for monitoring and reports
-  # ──────────────────────────────────────────────────────────────────────────
+
+  # ── API ──────────────────────────────────────────────────────────────────
   api:
-    <<: *base
-    container_name: polybot_api
-    command: >
-      bash -c "python -c 'from bot.data.models import Base; from bot.data.session import engine; Base.metadata.create_all(engine)' &&
-               uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --log-level info"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - db_data:/app/data
+      - ./results:/app/results
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "sqlite+pysqlite:////app/data/polymarket_bot.db"
+    command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
-      retries: 5
+      retries: 3
       start_period: 15s
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # Scanner — Polls Polymarket API, stores MarketSnapshot rows every N seconds
-  # ──────────────────────────────────────────────────────────────────────────
+  # ── SCANNER (market + snapshot ingestion) ────────────────────────────────
   scanner:
-    <<: *base
-    container_name: polybot_scanner
+    <<: *worker-base
     command: python -m apps.worker.scanner
     depends_on:
       api:
         condition: service_healthy
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # Signal Engine — Runs v1 and v2 strategies, writes SignalRecord rows
-  # ──────────────────────────────────────────────────────────────────────────
+  # ── SIGNAL ENGINE ────────────────────────────────────────────────────────
   signal_engine:
-    <<: *base
-    container_name: polybot_signal_engine
+    <<: *worker-base
     command: python -m apps.worker.signal_engine
     depends_on:
       api:
         condition: service_healthy
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # Paper Trader — Evaluates signals through RiskManager, places simulated orders
-  # ──────────────────────────────────────────────────────────────────────────
+  # ── PAPER TRADER ─────────────────────────────────────────────────────────
   paper_trader:
-    <<: *base
-    container_name: polybot_paper_trader
+    <<: *worker-base
     command: python -m apps.worker.paper_trader
     depends_on:
       api:
         condition: service_healthy
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # Settlement Engine — Resolves completed markets, records final PnL
-  # ──────────────────────────────────────────────────────────────────────────
+  # ── SETTLEMENT ENGINE ────────────────────────────────────────────────────
   settlement_engine:
-    <<: *base
-    container_name: polybot_settlement_engine
+    <<: *worker-base
     command: python -m apps.worker.settlement_engine
     depends_on:
       api:
         condition: service_healthy
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Volumes — Data persists across container restarts
-# ─────────────────────────────────────────────────────────────────────────────
 volumes:
+  # Named volume — persists the SQLite database across restarts.
+  # 'docker compose down' does NOT delete this volume.
+  # 'docker compose down -v' WILL delete it (do not do this during the experiment).
   db_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${PWD}/data
-  results_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${PWD}/results

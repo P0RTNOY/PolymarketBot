@@ -1,18 +1,20 @@
-# Base image for all services (shared, avoids re-downloading python:3.12-slim per service)
 FROM python:3.12-slim
+
+# Install curl (needed for the API health-check) and basic OS deps
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# System deps (no gcc needed for pure-python stack)
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+# Copy dependency manifest first (layer cache friendly)
+COPY pyproject.toml ./
+COPY README.md ./
 
-# Install project dependencies only (layer-cached unless pyproject.toml changes)
-COPY pyproject.toml .
-COPY README.md .
-RUN pip install --no-cache-dir -e . 2>/dev/null || true
+# Install project in editable mode so all workers see bot.* imports
+RUN pip install --no-cache-dir -e .
 
-# Copy full source (mounted at runtime anyway, but baked in for image portability)
+# Copy source (the volume mount in docker-compose will overlay this at runtime,
+# but we still copy so the image is self-contained for other environments)
 COPY . .
 
-# Final install in case editable install missed something
-RUN pip install --no-cache-dir -e .
+# Default: override in compose command
+CMD ["python", "--version"]
