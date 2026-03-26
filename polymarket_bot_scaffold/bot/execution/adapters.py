@@ -93,10 +93,34 @@ def enrich_signal_dict(
         signal_dict["exec_approved"] = exec_assessment.approved
         signal_dict["exec_reasons"] = json.dumps(exec_assessment.rejection_reasons)
         signal_dict["exec_tradability_score"] = exec_assessment.tradability_score
+        signal_dict["exec_stability_score"] = exec_assessment.stability_score
+        signal_dict["exec_stability_label"] = exec_assessment.stability_label
+        
+        # Persistence metrics (Phase 12.3A)
+        if exec_assessment.persistence_metrics:
+            p = exec_assessment.persistence_metrics
+            signal_dict["exec_recent_tradable_ratio"] = p.recent_tradable_ratio
+            signal_dict["exec_consecutive_tradable_snapshots"] = p.consecutive_tradable_snapshots
+            signal_dict["exec_stable_duration_seconds"] = p.stable_duration_seconds
+            # We add persistence reasons to the main exec_reasons JSON list in assessor, 
+            # but we can also store them separately if needed. 
+            # For now, let's just make sure they are in the dict.
+            signal_dict["exec_stability_reasons"] = json.dumps(exec_assessment.rejection_reasons)
+        else:
+            signal_dict["exec_recent_tradable_ratio"] = None
+            signal_dict["exec_consecutive_tradable_snapshots"] = None
+            signal_dict["exec_stable_duration_seconds"] = None
+            signal_dict["exec_stability_reasons"] = None
     else:
         signal_dict["exec_approved"] = None
         signal_dict["exec_reasons"] = None
         signal_dict["exec_tradability_score"] = None
+        signal_dict["exec_stability_score"] = None
+        signal_dict["exec_stability_label"] = None
+        signal_dict["exec_recent_tradable_ratio"] = None
+        signal_dict["exec_consecutive_tradable_snapshots"] = None
+        signal_dict["exec_stable_duration_seconds"] = None
+        signal_dict["exec_stability_reasons"] = None
 
     # Risk assessment
     if risk_assessment is not None:

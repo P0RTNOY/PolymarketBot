@@ -173,61 +173,64 @@ async def main() -> None:
             active_markets = [m for m in markets if m.active and not m.closed]
 
             for m in active_markets:
-                history = snapshot_repo.get_snapshot_history(m.id, limit=2)
-                if not history:
+                # ── Phase 12.3A: fetch wider history window ───────────────────
+                history_db = snapshot_repo.get_snapshot_history(
+                    m.id, limit=settings.book_stability_lookback
+                )
+                if not history_db:
                     continue
 
-                current_db = history[0]
-                prev_db = history[1] if len(history) > 1 else None
+                # Current is always history_db[-1] because get_snapshot_history 
+                # returns chronological (oldest first).
+                current_db = history_db[-1]
+                prev_db = history_db[-2] if len(history_db) > 1 else None
 
-                current_exec = MarketSnapshot(
-                    market_id=current_db.market_id,
-                    token_id=current_db.token_id,
-                    question=m.question,
-                    best_bid=current_db.best_bid,
-                    best_ask=current_db.best_ask,
-                    midpoint=current_db.midpoint,
-                    spread=current_db.spread,
-                    bid_depth_usd=current_db.bid_depth_usd,
-                    ask_depth_usd=current_db.ask_depth_usd,
-                    timestamp=current_db.timestamp,
-                    end_time=m.end_time
-                )
-
-                prev_exec = None
-                if prev_db:
-                    prev_exec = MarketSnapshot(
-                        market_id=prev_db.market_id,
-                        token_id=prev_db.token_id,
+                def to_exec_snap(db_obj) -> MarketSnapshot:
+                    return MarketSnapshot(
+                        market_id=db_obj.market_id,
+                        token_id=db_obj.token_id,
                         question=m.question,
-                        best_bid=prev_db.best_bid,
-                        best_ask=prev_db.best_ask,
-                        midpoint=prev_db.midpoint,
-                        spread=prev_db.spread,
-                        bid_depth_usd=prev_db.bid_depth_usd,
-                        ask_depth_usd=prev_db.ask_depth_usd,
-                        timestamp=prev_db.timestamp,
+                        best_bid=db_obj.best_bid,
+                        best_ask=db_obj.best_ask,
+                        midpoint=db_obj.midpoint,
+                        spread=db_obj.spread,
+                        bid_depth_usd=db_obj.bid_depth_usd,
+                        ask_depth_usd=db_obj.ask_depth_usd,
+                        timestamp=db_obj.timestamp,
                         end_time=m.end_time
                     )
 
+                current_exec = to_exec_snap(current_db)
+                prev_exec = to_exec_snap(prev_db) if prev_db else None
+
+                # Build full history of features for persistence analysis
+                # (Used by ExecutionAssessor)
+                history_features = []
+                for i in range(len(history_db)):
+                    feat_curr = to_exec_snap(history_db[i])
+                    feat_prev = to_exec_snap(history_db[i-1]) if i > 0 else None
+                    history_features.append(
+                        build_signal_features_from_snapshot(
+                            strategy_name="persistence_calc", # dummy name for history pass
+                            current=feat_curr,
+                            previous=feat_prev,
+                            edge=0.0
+                        )
+                    )
+
                 for strategy in strategies:
-                    # ── Phase 12.1: PASS 1 — raw edge pre-computation ──────────
-                    # Compute edge WITHOUT the min_edge gate so we can log
-                    # below-threshold candidates.
+                    # ── PASS 1: Raw edge pre-computation ──────────────────────
                     raw_fn = _RAW_EDGE_FN.get(strategy.name)
-                    if raw_fn is None:
-                        # Unknown strategy: fall through to existing evaluate() path
-                        raw_model_prob, raw_edge, raw_side = None, None, None
-                    else:
+                    raw_model_prob, raw_edge, raw_side = None, None, None
+                    if raw_fn:
                         try:
                             raw_model_prob, raw_edge, raw_side = raw_fn(current_exec, prev_exec)
                         except Exception as raw_err:
                             print(f"[signal_engine] [raw_edge warn] {strategy.name}: {raw_err}")
-                            raw_model_prob, raw_edge, raw_side = None, None, None
 
                     abs_raw_edge = abs(raw_edge) if raw_edge is not None else 0.0
 
-                    # ── Phase 12.1: below-threshold candidate logging ─────────
+                    # ── Phase 12.1: Below-threshold candidate logging ─────────
                     if (
                         raw_edge is not None
                         and is_loggable(abs_raw_edge)
@@ -242,8 +245,10 @@ async def main() -> None:
                                 previous=prev_exec,
                                 edge=raw_edge,
                             )
-                            # Phase 12.2: assess execution quality for candidate
-                            exec_assessment = ExecutionAssessor().assess(features, settings)
+                            # Phase 12.3A: assess with history
+                            exec_assessment = ExecutionAssessor().assess(
+                                features, settings, history=history_features
+                            )
                             candidate_dict = _build_candidate_signal_dict(
                                 signal_id=str(uuid4()),
                                 strategy_name=strategy.name,
@@ -274,15 +279,16 @@ async def main() -> None:
                                 ),
                                 exec_assessment=exec_assessment,
                             )
-                            candidate_dict["candidate_status"] = cstatus
-                            candidate_dict["edge_bucket"] = ebucket
                             signal_repo.insert_signal(candidate_dict)
                             print(
                                 f"[signal_engine] [{strategy.name}] CANDIDATE "
                                 f"{m.id} | edge={raw_edge:.4f} bucket={ebucket} "
                                 f"exec={'OK' if exec_assessment.approved else 'FAIL'} "
+                                f"stable={exec_assessment.stability_label} "
                                 f"score={exec_assessment.tradability_score:.2f}"
                             )
+                        except Exception as cand_err:
+                            print(f"[signal_engine] [candidate warn] {cand_err}")
                         except Exception as cand_err:
                             print(f"[signal_engine] [candidate warn] {cand_err}")
 
@@ -313,8 +319,10 @@ async def main() -> None:
                                 features=features,
                                 reason=signal.reason,
                             )
-                            # Phase 12.2: assess execution quality (observational only)
-                            exec_assessment = ExecutionAssessor().assess(features, settings)
+                            # Phase 12.3A: assess with history
+                            exec_assessment = ExecutionAssessor().assess(
+                                features, settings, history=history_features
+                            )
                             enrich_signal_dict(
                                 signal_dict,
                                 decision=decision,

@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     signal_staleness_seconds: int = 15
     min_time_to_close_mins: float = 2.0
 
+    # Phase 12.3A: Book Stability & Persistence
+    book_stability_lookback: int = 5
+    book_stability_required: int = 3
+    min_tradable_streak_seconds: int = 20
+    max_spread_jump: float = 0.05
+    enable_persistence_gate: bool = False
+
     polymarket_api_base: str = "https://example.invalid"
     polymarket_wss_base: str = "wss://example.invalid/ws"
     polymarket_private_key: str = ""

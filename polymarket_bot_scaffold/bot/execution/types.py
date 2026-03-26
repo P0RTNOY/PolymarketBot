@@ -153,6 +153,11 @@ class ExecutionAssessment(BaseModel):
     liquidity_label: str = ""      # e.g. "deep", "thin", "very_thin"
     expiry_label: str = ""         # e.g. "plenty", "near", "critical"
     staleness_label: str = ""      # e.g. "fresh", "stale"
+    stability_label: str = ""      # e.g. "stable", "flicker", "unstable"
+    stability_score: float = 0.0   # 0.0–1.0 persistence quality
+
+    # Optional detailed metrics for logging (from Phase 12.3A)
+    persistence_metrics: Any | None = None
 
 
 class RiskAssessment(BaseModel):

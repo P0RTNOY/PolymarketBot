@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, Float, Text, JSON
+from sqlalchemy import String, Boolean, DateTime, Float, Text, JSON, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from bot.data.session import Base
 
@@ -64,6 +64,14 @@ class SignalRecord(Base):
 
     # Edge magnitude bucket: '0.00-0.01' | '0.01-0.02' | ... | '0.04+'
     edge_bucket: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # ── Phase 12.3A: Persistence & Stability ──────────────────────────────────────────
+    exec_stability_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exec_stability_label: Mapped[str | None] = mapped_column(String, nullable=True)
+    exec_stability_reasons: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
+    exec_recent_tradable_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exec_consecutive_tradable_snapshots: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    exec_stable_duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 class OutcomeToken(Base):
     __tablename__ = "outcome_tokens"

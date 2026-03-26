@@ -29,10 +29,22 @@ class SnapshotRepository:
             stmt = select(MarketSnapshot).order_by(desc(MarketSnapshot.timestamp)).limit(limit)
             return list(session.scalars(stmt))
 
-    def get_snapshot_history(self, market_id: str, limit: int = 2) -> list[MarketSnapshot]:
+    def get_snapshot_history(
+        self, market_id: str, token_id: str = None, limit: int = 5
+    ) -> list[MarketSnapshot]:
+        """Fetch chronological history for a market/token."""
         with SessionLocal() as session:
-            stmt = select(MarketSnapshot).where(MarketSnapshot.market_id == market_id).order_by(desc(MarketSnapshot.timestamp)).limit(limit)
-            return list(session.scalars(stmt))
+            stmt = select(MarketSnapshot).where(MarketSnapshot.market_id == market_id)
+            if token_id:
+                stmt = stmt.where(MarketSnapshot.token_id == token_id)
+
+            # Important: fetch desc to get the most recent N, 
+            # but we usually want to return them in ASC (chronological) order for time-series logic.
+            # We fetch DESC here and reverse later to be safe with the limit.
+            stmt = stmt.order_by(desc(MarketSnapshot.timestamp)).limit(limit)
+            results = list(session.scalars(stmt))
+            results.reverse()  # Return oldest first (chronological)
+            return results
 
     def get_snapshots_in_range(self, start: datetime, end: datetime) -> list[MarketSnapshot]:
         """Return all snapshots in [start, end], ordered token-first then chronologically for replay."""

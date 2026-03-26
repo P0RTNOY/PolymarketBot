@@ -15,8 +15,8 @@ DESIGN PRINCIPLE:
   exec_approved is logged for research/analysis; live gating on execution
   quality is Phase 12.3+.
 """
-from __future__ import annotations
 from bot.execution.types import ExecutionAssessment, SignalFeatures
+from bot.analytics.tradability_persistence import compute_persistence_metrics
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -42,8 +42,9 @@ _EXPIRY_PLENTY_MULT  = 5.0   # >= 5× min_time → plenty
 
 _W_SPREAD   = 0.35   # spread matters most for fill quality
 _W_DEPTH    = 0.30   # depth determines whether the order can be placed
-_W_FRESHNESS = 0.20  # staleness impacts signal relevance
-_W_EXPIRY   = 0.15   # expiry rarely binding but important when it is
+_W_FRESHNESS = 0.15  # staleness impacts signal relevance
+_W_EXPIRY   = 0.10   # expiry rarely binding but important when it is
+_W_STABILITY = 0.20  # Phase 12.3A: persistence of tradability
 
 
 class ExecutionAssessor:
@@ -58,7 +59,9 @@ class ExecutionAssessor:
     automatically respects config overrides.
     """
 
-    def assess(self, features: SignalFeatures, settings) -> ExecutionAssessment:
+    def assess(
+        self, features: SignalFeatures, settings, history: list[SignalFeatures] = None
+    ) -> ExecutionAssessment:
         """
         Evaluate microstructure conditions and return an ExecutionAssessment.
 
@@ -145,17 +148,46 @@ class ExecutionAssessor:
 
         component_scores["expiry"] = 1.0 if expiry_ok else 0.0
 
+        # ── 5. Persistence / Stability check (Phase 12.3A) ─────────────────────
+        stability_score = 1.0
+        stability_label = "stable"
+        persistence_metrics = None
+
+        if history:
+            persistence_metrics = compute_persistence_metrics(history, settings)
+            stability_score = persistence_metrics.recent_tradable_ratio
+            
+            # Label assignment
+            if stability_score >= 0.8:
+                stability_label = "stable"
+            elif stability_score >= 0.4:
+                stability_label = "flicker"
+            else:
+                stability_label = "unstable"
+
+            # Persistence-based rejections (only if enabled)
+            if settings.enable_persistence_gate:
+                if stability_score < (settings.book_stability_required / settings.book_stability_lookback):
+                    rejection_reasons.append("insufficient_tradable_history")
+                
+                if persistence_metrics.spread_jump_count > 0:
+                    rejection_reasons.append("spread_jumps_too_often")
+
+        component_scores["stability"] = stability_score
+
         # ── Tradability score ─────────────────────────────────────────────────
+        # Weights re-balanced for stability
         tradability_score = round(
-            component_scores["spread"]    * _W_SPREAD   +
-            component_scores["depth"]     * _W_DEPTH    +
+            component_scores["spread"]    * _W_SPREAD    +
+            component_scores["depth"]     * _W_DEPTH     +
             component_scores["freshness"] * _W_FRESHNESS +
-            component_scores["expiry"]    * _W_EXPIRY,
+            component_scores["expiry"]    * _W_EXPIRY    +
+            component_scores["stability"] * _W_STABILITY,
             4,
         )
 
         return ExecutionAssessment(
-            signal_id=features.market_id,   # best available ID at this point
+            signal_id=features.market_id,
             approved=len(rejection_reasons) == 0,
             rejection_reasons=rejection_reasons,
             tradability_score=tradability_score,
@@ -163,4 +195,7 @@ class ExecutionAssessor:
             liquidity_label=liquidity_label,
             staleness_label=staleness_label,
             expiry_label=expiry_label,
+            stability_label=stability_label,
+            stability_score=stability_score,
+            persistence_metrics=persistence_metrics,
         )
