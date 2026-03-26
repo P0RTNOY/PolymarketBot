@@ -30,7 +30,7 @@ x-worker-base: &worker-base
   env_file:
     - .env
   environment:
-    # Override the default relative DB path so SQLite writes to the named volume
+    PYTHONUNBUFFERED: "1"
     DATABASE_URL: "sqlite+pysqlite:////app/data/polymarket_bot.db"
   restart: unless-stopped           # auto-restart on crash; stop only with 'make down'
   depends_on:
@@ -50,6 +50,7 @@ services:
     env_file:
       - .env
     environment:
+      PYTHONUNBUFFERED: "1"
       DATABASE_URL: "sqlite+pysqlite:////app/data/polymarket_bot.db"
     command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
     ports:

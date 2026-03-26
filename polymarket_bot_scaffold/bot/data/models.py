@@ -36,6 +36,35 @@ class SignalRecord(Base):
     eval_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
+    # ── Phase 12.0 additions (nullable; existing rows stay valid) ──────────────
+    # Alpha / model output
+    alpha_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Execution assessment verdict
+    exec_approved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    exec_reasons: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
+
+    # Risk assessment verdict
+    risk_approved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    risk_reasons: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
+
+    # Full SignalFeatures snapshot as JSON blob
+    features_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON object
+
+    # Phase 12.2: execution tradability score (0.0–1.0; None until assessor is run)
+    exec_tradability_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # ── Phase 12.1 additions ───────────────────────────────────────────────────────────
+    # Shadow candidate status:
+    #   CANDIDATE    — above floor but below min_edge (shadow-logged, never traded)
+    #   TRADEABLE    — above min_edge (entered the paper-trading flow)
+    #   REJECTED_EXEC — reserved for Phase 12.2
+    #   REJECTED_RISK — reserved for Phase 12.2
+    candidate_status: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Edge magnitude bucket: '0.00-0.01' | '0.01-0.02' | ... | '0.04+'
+    edge_bucket: Mapped[str | None] = mapped_column(String, nullable=True)
+
 class OutcomeToken(Base):
     __tablename__ = "outcome_tokens"
 

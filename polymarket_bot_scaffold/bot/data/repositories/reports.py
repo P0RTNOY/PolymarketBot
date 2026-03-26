@@ -2,6 +2,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, func
 from bot.data.session import SessionLocal
 from bot.data.models import SignalRecord, PaperOrder, PaperPosition, MarketSnapshot
+from bot.analytics.candidate_buckets import EDGE_BUCKET_LABELS, TRADEABLE, CANDIDATE
 
 class ReportRepository:
     def get_daily_report(self) -> dict:
@@ -92,6 +93,44 @@ class ReportRepository:
                     u_pnl = (current_val - p.average_entry_price) * p.size_shares
                     unrealized_pnl += u_pnl
 
+            # 6. Candidate bucket breakdown (Phase 12.1)
+            candidate_rows = list(session.execute(
+                select(SignalRecord.edge_bucket, SignalRecord.candidate_status)
+                .where(SignalRecord.timestamp >= start_24h)
+                .where(SignalRecord.candidate_status.is_not(None))
+            ))
+
+            candidates_by_bucket: dict[str, int] = {label: 0 for label in EDGE_BUCKET_LABELS}
+            tradeable_by_bucket:  dict[str, int] = {label: 0 for label in EDGE_BUCKET_LABELS}
+            total_candidates = 0
+            total_tradeable  = 0
+
+            for bucket, status in candidate_rows:
+                if bucket and bucket in candidates_by_bucket:
+                    candidates_by_bucket[bucket] += 1
+                    total_candidates += 1
+                    if status == TRADEABLE:
+                        tradeable_by_bucket[bucket] += 1
+                        total_tradeable += 1
+
+            # 7. Exec rejection reason breakdown (Phase 12.2)
+            exec_rejected_rows = list(session.execute(
+                select(SignalRecord.exec_reasons)
+                .where(SignalRecord.timestamp >= start_24h)
+                .where(SignalRecord.exec_approved == False)  # noqa: E712
+            ))
+            exec_rejection_breakdown: dict[str, int] = {}
+            import json as _json
+            for (reasons_json,) in exec_rejected_rows:
+                if reasons_json:
+                    try:
+                        reasons = _json.loads(reasons_json)
+                        for r in reasons:
+                            base = r.split("(")[0]
+                            exec_rejection_breakdown[base] = exec_rejection_breakdown.get(base, 0) + 1
+                    except Exception:
+                        pass
+
             return {
                 "markets_scanned_24h": scanned,
                 "signals_generated_24h": total_signals,
@@ -104,5 +143,12 @@ class ReportRepository:
                 "unrealized_pnl_open": unrealized_pnl,
                 "best_trade_pnl": best_trade,
                 "worst_trade_pnl": worst_trade,
-                "pnl_by_hour_utc": pnl_by_hour
+                "pnl_by_hour_utc": pnl_by_hour,
+                # Phase 12.1 additions
+                "candidates_total_24h": total_candidates,
+                "tradeables_total_24h": total_tradeable,
+                "candidates_by_edge_bucket": candidates_by_bucket,
+                "tradeables_by_edge_bucket": tradeable_by_bucket,
+                # Phase 12.2 additions
+                "exec_rejection_breakdown": exec_rejection_breakdown,
             }

@@ -44,6 +44,7 @@ from bot.execution.types import MarketSnapshot as SnapshotPydantic, TradeSignal
 from bot.core.config import get_settings
 from bot.strategies.eth_direction_15m import ETHDirection15mStrategy
 from bot.strategies.eth_direction_15m_v2 import ETHDirection15mV2Strategy
+from bot.analytics.candidate_buckets import TRADEABLE, edge_to_bucket
 from sqlalchemy import select
 
 STRATEGIES = [ETHDirection15mStrategy(), ETHDirection15mV2Strategy()]
@@ -201,6 +202,9 @@ def run_single(
                     "fill_delay_secs": None,
                     "exit_method": None,
                     "realized_pnl": None,
+                    # Phase 12.1
+                    "candidate_status": TRADEABLE if signal is not None else None,
+                    "edge_bucket": edge_to_bucket(abs(signal.edge)) if signal is not None else None,
                 }
 
                 if signal is None:

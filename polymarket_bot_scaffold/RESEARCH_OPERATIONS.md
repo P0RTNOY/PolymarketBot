@@ -172,3 +172,69 @@ make down          # stops containers, preserves database ✅
 # DO NOT run:
 make clean-volumes # this DELETES all collected data ❌
 ```
+
+---
+
+## Phase 12.0 — DB Migration (run once after upgrading)
+
+Phase 12.0 adds 6 nullable columns to the `signals` table:
+`alpha_score`, `exec_approved`, `exec_reasons`, `risk_approved`, `risk_reasons`, `features_json`.
+
+All columns are nullable — existing rows are **not affected**.
+
+### Local (SQLite — outside Docker)
+
+```bash
+# Preview only (no writes)
+python scripts/migrate_120.py --dry-run
+
+# Apply
+python scripts/migrate_120.py
+```
+
+### Docker (DB inside container volume)
+
+```bash
+# Preview
+docker compose exec api python scripts/migrate_120.py --dry-run
+
+# Apply
+docker compose exec api python scripts/migrate_120.py
+```
+
+> [!NOTE]
+> The migration is **idempotent** — safe to run multiple times. Existing columns are skipped.
+
+### Verify column population after migration
+
+```bash
+# Local
+python scripts/check_120_columns.py
+
+# Docker
+docker compose exec api python scripts/check_120_columns.py
+```
+
+Expected output:
+```
+✅ alpha_score      : 0.06
+✅ features_json    : 462 bytes, all 12 canonical keys present
+✅ exec_approved    : None  (NULL is correct until Phase 12.2)
+✅ Phase 12.0 column-population check complete.
+```
+
+### `features_json` canonical schema (stable from Phase 12.0)
+
+Every `features_json` blob contains these keys (plus others):
+
+| Key | Description |
+|---|---|
+| `market_prob` | Market-implied probability (midpoint) |
+| `edge` | `model_prob - market_prob` as computed by the strategy |
+| `spread` | `best_ask - best_bid` |
+| `total_depth_usd` | Total visible USD depth (bid + ask) |
+| `snapshot_age_ms` | Age of the snapshot in milliseconds |
+| `depth_imbalance` | `(bid - ask) / total`; range −1 to +1 |
+| `recent_movement` | `current.midpoint - previous.midpoint` |
+| `minutes_to_expiry` | Estimated minutes until market resolves |
+
