@@ -19,8 +19,10 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.experiment_config import compute_config_hash, write_manifest, load_manifest
+from bot.core.paths import get_profile_manifest_path
+from bot.core.config import get_settings
 
-MANIFEST_PATH = Path("results/manifests/experiment_manifest.json")
+DEFAULT_PROFILE = get_settings().market_profile
 
 
 def cmd_show(manifest_path: Path) -> None:
@@ -29,6 +31,7 @@ def cmd_show(manifest_path: Path) -> None:
         print("No manifest found. Run with --label to create one.")
         return
     print(f"\n{'='*60}")
+    print(f" Profile:    {m.get('market_profile', 'eth_15m_direction')}")
     print(f" Experiment: {m['experiment_label']}")
     print(f" Created:    {m['created_at']}")
     print(f" Hash:       {m['config_hash']}")
@@ -47,8 +50,8 @@ def cmd_show(manifest_path: Path) -> None:
     print()
 
 
-def cmd_create(manifest_path: Path, label: str, seed: int | None, runs: int) -> None:
-    config_hash, config_dict = compute_config_hash(seed, runs)
+def cmd_create(manifest_path: Path, label: str, seed: int | None, runs: int, profile: str) -> None:
+    config_hash, config_dict = compute_config_hash(seed, runs, market_profile=profile)
 
     existing = load_manifest(manifest_path)
     if existing:
@@ -58,10 +61,12 @@ def cmd_create(manifest_path: Path, label: str, seed: int | None, runs: int) -> 
         else:
             print(f"⚠  Config changed since last manifest ({existing['config_hash']} → {config_hash}).")
             print(f"   Previous label: {existing['experiment_label']}")
-
-    manifest = write_manifest(manifest_path, config_hash, config_dict, label)
+            print(f"   Previous profile: {existing.get('market_profile', 'unknown')}")
+            
+    manifest = write_manifest(manifest_path, config_hash, config_dict, label, market_profile=profile)
     print(f"\n{'='*60}")
     print(f" Manifest written: {manifest_path}")
+    print(f" Profile:          {profile}")
     print(f" Experiment label: {label}")
     print(f" Config hash:      {config_hash}")
     print(f" Created at:       {manifest['created_at']}")
@@ -77,15 +82,19 @@ def main() -> None:
     parser.add_argument("--seed",  type=int, default=42, help="Default RNG seed (default: 42)")
     parser.add_argument("--runs",  type=int, default=20, help="Default Monte Carlo runs (default: 20)")
     parser.add_argument("--show",  action="store_true", help="Display current manifest without modifying it")
-    parser.add_argument("--manifest", type=str, default=str(MANIFEST_PATH))
+    parser.add_argument("--profile", type=str, default=DEFAULT_PROFILE, help=f"Market profile for this experiment (default: {DEFAULT_PROFILE})")
+    parser.add_argument("--manifest", type=str, default=None, help="Explicit manifest path override")
     args = parser.parse_args()
 
-    manifest_path = Path(args.manifest)
+    if args.manifest:
+        manifest_path = Path(args.manifest)
+    else:
+        manifest_path = get_profile_manifest_path(args.profile)
 
     if args.show:
         cmd_show(manifest_path)
     elif args.label:
-        cmd_create(manifest_path, args.label, args.seed, args.runs)
+        cmd_create(manifest_path, args.label, args.seed, args.runs, args.profile)
     else:
         # Default: show if exists, else prompt
         if manifest_path.exists():

@@ -1,6 +1,8 @@
 import asyncio
 from datetime import datetime, timezone
 from bot.clients.polymarket_public import PolymarketPublicClient
+from bot.core.config import get_settings
+from bot.core.market_profiles import get_profile
 from bot.data.repositories.markets import MarketRepository
 from bot.data.repositories.snapshots import SnapshotRepository
 
@@ -8,13 +10,17 @@ async def main() -> None:
     client = PolymarketPublicClient()
     market_repo = MarketRepository()
     snapshot_repo = SnapshotRepository()
+    settings = get_settings()
+    profile = get_profile(settings.market_profile)
     
-    print("[scanner] Starting Polymarket scanner loop...", flush=True)
+    print(f"[scanner] Starting Polymarket scanner loop...", flush=True)
+    print(f"[scanner] Active profile: {profile.name} ({profile.description})", flush=True)
     while True:
         try:
-            print("[scanner] Fetching active markets...", flush=True)
-            markets = await client.list_active_markets(limit=5)
-            print(f"[scanner] Returning {len(markets)} active matching markets from API", flush=True)
+            print(f"[scanner] Fetching active markets for profile {settings.market_profile}...", flush=True)
+            markets, total_checked = await client.list_active_markets(limit=5)
+            print(f"[scanner] Checked {total_checked} active markets", flush=True)
+            print(f"[scanner] Matched {len(markets)} markets for profile {settings.market_profile}", flush=True)
             
             market_repo.upsert_many(markets)
             print(f"[scanner] stored {len(markets)} markets in DB", flush=True)

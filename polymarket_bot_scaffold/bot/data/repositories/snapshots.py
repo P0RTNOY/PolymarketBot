@@ -29,8 +29,16 @@ class SnapshotRepository:
             stmt = select(MarketSnapshot).order_by(desc(MarketSnapshot.timestamp)).limit(limit)
             return list(session.scalars(stmt))
 
+    def get_latest_timestamp(self, market_ids: list[str] | None = None) -> datetime | None:
+        """Return the timestamp of the absolute latest snapshot, optionally filtered by market_ids."""
+        with SessionLocal() as session:
+            stmt = select(MarketSnapshot.timestamp).order_by(desc(MarketSnapshot.timestamp))
+            if market_ids:
+                stmt = stmt.where(MarketSnapshot.market_id.in_(market_ids))
+            return session.scalars(stmt.limit(1)).first()
+
     def get_snapshot_history(
-        self, market_id: str, token_id: str = None, limit: int = 5
+        self, market_id: str, token_id: str | None = None, limit: int = 5
     ) -> list[MarketSnapshot]:
         """Fetch chronological history for a market/token."""
         with SessionLocal() as session:

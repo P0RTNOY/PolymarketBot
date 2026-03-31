@@ -15,7 +15,10 @@ SUMMARY_PATH = Path("results/summaries/daily_summary.csv")
 
 FIELDNAMES = [
     "date",
+    "market_profile",
     "strategy_version",
+    "experiment_label",
+    "config_hash",
     "runs",
     "base_seed",
     "signals_generated",
@@ -32,8 +35,16 @@ FIELDNAMES = [
     "pnl_stdev",
     "average_fill_delay_secs",
     "settlement_mode",
-    "config_hash",
-    "config_label",
+    # Phase 12.3B — Universe Quality
+    "median_spread",
+    "p90_spread",
+    "pct_snapshots_under_max_spread",
+    "median_total_depth_usd",
+    "pct_snapshots_above_min_depth_usd",
+    "pct_snapshots_meeting_exec_conditions",
+    "candidate_to_tradeable_rate",
+    "tradeable_to_exec_approved_rate",
+    "dominant_exec_rejection_reason",
 ]
 
 
@@ -42,16 +53,16 @@ def _compute_mc_stats(mc_pnl_list: list[float]) -> dict:
         return {"mean_pnl": 0.0, "median_pnl": 0.0, "best_pnl": 0.0,
                 "worst_pnl": 0.0, "pnl_stdev": 0.0}
     return {
-        "mean_pnl":   round(statistics.mean(mc_pnl_list), 6),
-        "median_pnl": round(statistics.median(mc_pnl_list), 6),
-        "best_pnl":   round(max(mc_pnl_list), 6),
-        "worst_pnl":  round(min(mc_pnl_list), 6),
-        "pnl_stdev":  round(statistics.stdev(mc_pnl_list) if len(mc_pnl_list) > 1 else 0.0, 6),
+        "mean_pnl":   statistics.mean(mc_pnl_list),
+        "median_pnl": statistics.median(mc_pnl_list),
+        "best_pnl":   max(mc_pnl_list),
+        "worst_pnl":  min(mc_pnl_list),
+        "pnl_stdev":  statistics.stdev(mc_pnl_list) if len(mc_pnl_list) > 1 else 0.0,
     }
 
 
-def _pct(num: int, den: int) -> float:
-    return round(100 * num / max(1, den), 2)
+def _pct(num: int, den: int) -> str:
+    return f"{100 * num / max(1, den):.2f}"
 
 
 def append_daily_rows(
@@ -64,10 +75,18 @@ def append_daily_rows(
     config_hash: str,
     config_label: str,
     summary_path: Path = SUMMARY_PATH,
+    universe_quality: dict[str, dict] | None = None,
+    market_profile: str = "unknown", # Added market_profile to kwargs
 ) -> None:
     summary_path.parent.mkdir(parents=True, exist_ok=True)
 
     write_header = not summary_path.exists()
+    date_str = replay_date.isoformat()
+    # Get quality metrics for this specific day if available
+    q = (universe_quality or {}).get(date_str, {})
+    snap_q = q.get("snapshot_quality", {})
+    funnel = q.get("opportunity_funnel", {})
+    failures = q.get("failure_analysis", {})
 
     with open(summary_path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
@@ -77,14 +96,17 @@ def append_daily_rows(
         for strategy_name, st in last_run_stats.items():
             pnl_list = mc_pnl.get(strategy_name, [])
             mc_stats = _compute_mc_stats(pnl_list)
+            # Format mc_stats for CSV (high precision)
+            mc_formatted = {k: f"{v:.6f}" for k, v in mc_stats.items()}
             delays = st.get("fill_delays", [])
-            avg_delay = round(sum(delays) / max(1, len(delays)), 2)
+            avg_delay = f"{statistics.mean(delays):.2f}" if delays else "0.00"
 
-            # trades_count = number of trades evaluated across all runs
-            # (we only have last-run stats for granular data; mc captures PnL distribution)
             row = {
-                "date":                  replay_date.isoformat(),
+                "date":                  date_str,
+                "market_profile":        market_profile,
                 "strategy_version":      strategy_name,
+                "experiment_label":      config_label,
+                "config_hash":           config_hash,
                 "runs":                  runs,
                 "base_seed":             seed,
                 "signals_generated":     st.get("signals", 0),
@@ -96,9 +118,17 @@ def append_daily_rows(
                 "trades_count":          len(pnl_list),
                 "average_fill_delay_secs": avg_delay,
                 "settlement_mode":       settlement_mode,
-                "config_hash":           config_hash,
-                "config_label":          config_label,
-                **mc_stats,
+                # Universe Quality Fields
+                "median_spread":         snap_q.get("median_spread", 0.0),
+                "p90_spread":            snap_q.get("p90_spread", 0.0),
+                "pct_snapshots_under_max_spread": snap_q.get("pct_snapshots_under_max_spread", 0.0),
+                "median_total_depth_usd": snap_q.get("median_total_depth_usd", 0.0),
+                "pct_snapshots_above_min_depth_usd": snap_q.get("pct_snapshots_above_min_depth_usd", 0.0),
+                "pct_snapshots_meeting_exec_conditions": snap_q.get("pct_snapshots_meeting_exec_conditions", 0.0),
+                "candidate_to_tradeable_rate": funnel.get("candidate_to_tradeable_rate", 0.0),
+                "tradeable_to_exec_approved_rate": funnel.get("tradeable_to_exec_approved_rate", 0.0),
+                "dominant_exec_rejection_reason": failures.get("dominant_exec_rejection_reason", "none"),
+                **mc_formatted,
             }
             writer.writerow(row)
 
@@ -111,11 +141,15 @@ def print_console_summary(
     seed: int | None,
     settlement_mode: str,
     config_hash: str,
+    universe_quality: dict[str, dict] | None = None,
+    market_profile: str = "unknown",
+    config_label: str = "unknown",
 ) -> None:
     """Compact, readable daily console summary."""
     print(f"\n{'━'*65}")
-    print(f"  📊 DAILY SUMMARY  {replay_date}  |  runs={runs}  seed={seed}")
-    print(f"  settlement={settlement_mode}  config={config_hash}")
+    print(f"  📊 DAILY SUMMARY  {market_profile.upper()}  |  {replay_date}")
+    print(f"  runs={runs}  seed={seed}  config={config_hash}")
+    print(f"  label={config_label}  settlement={settlement_mode}")
     print(f"{'━'*65}")
     print(f"  {'Strategy':<28} {'Mean':>8} {'Median':>8} {'Best':>8} {'Worst':>8} {'Stdev':>7}")
     print(f"  {'':─<60}")
@@ -142,5 +176,30 @@ def print_console_summary(
             f"  fills={fills}/{orders} ({fill_rate}%)"
             f"  wins={wins} ({win_rate}%)"
         )
+
+    # Universe Quality Block
+    if universe_quality:
+        date_str = replay_date.isoformat()
+        q = (universe_quality or {}).get(date_str, {})
+        snap_q = q.get("snapshot_quality", {})
+        funnel = q.get("opportunity_funnel", {})
+        verdict = q.get("universe_verdict", {})
+        
+        if q:
+            print(f"\n  🌐 UNIVERSE QUALITY ({date_str})")
+            print(f"  {'Status':<15}: {verdict.get('universe_status', 'N/A').upper()}")
+            print(f"  {'Bottleneck':<15}: {verdict.get('primary_bottleneck', 'N/A')}")
+            
+            print(f"\n  Market Health:")
+            print(f"    - Median Spread : {snap_q.get('median_spread', 0.0):.4f}  (P90: {snap_q.get('p90_spread', 0.0):.4f})")
+            print(f"    - Median Depth  : ${snap_q.get('median_total_depth_usd', 0.0):,.0f} (P10: ${snap_q.get('p10_total_depth_usd', 0.0):,.0f})")
+            print(f"    - Exec OK Rate  : {snap_q.get('pct_snapshots_meeting_exec_conditions', 0.0)*100:.1f}%")
+            
+            print(f"\n  Funnel Efficiency:")
+            print(f"    - Candidate -> Tradeable : {funnel.get('candidate_to_tradeable_rate', 0.0)*100:.1f}%")
+            print(f"    - Tradeable -> Exec OK   : {funnel.get('tradeable_to_exec_approved_rate', 0.0)*100:.1f}%")
+            
+            if verdict.get("recommended_action"):
+                print(f"\n  👉 {verdict.get('recommended_action').replace('_', ' ').capitalize()}")
 
     print(f"{'━'*65}\n")

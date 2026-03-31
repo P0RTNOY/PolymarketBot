@@ -21,3 +21,25 @@ def get_paper_stats():
         "status": "ok",
         "data": stats
     }
+
+@router.get("/universe_quality")
+def get_universe_quality(
+    start_date: str | None = None, 
+    end_date: str | None = None, 
+    group_by: str = "date",
+    strategy_version: str | None = None
+):
+    from datetime import datetime
+    start = datetime.fromisoformat(start_date) if start_date else None
+    end = datetime.fromisoformat(end_date) if end_date else None
+    
+    data = reports_repo.get_universe_quality(
+        start=start, 
+        end=end, 
+        group_by=group_by, 
+        strategy_version=strategy_version
+    )
+    return {
+        "status": "ok",
+        "data": data
+    }

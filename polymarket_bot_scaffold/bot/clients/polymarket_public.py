@@ -1,20 +1,19 @@
 from __future__ import annotations
 import httpx
 from bot.core.config import get_settings
+from bot.core.market_profiles import get_profile, ProfileMatcher
 
 class PolymarketPublicClient:
-    def _is_target_market(self, market: dict) -> bool:
-        q = market.get("question", "").lower()
-        s = market.get("slug", "").lower()
-        has_eth = "eth" in q or "ethereum" in q or "eth" in s
-        has_15 = "15m" in q or "15 min" in q or "15-min" in q or "15 minute" in q or "15m" in s
-        has_up_down = "up" in q or "down" in q or "above" in q or "below" in q or "updown" in s
-        return has_eth and has_15 and has_up_down
+    # Hardcoded _is_target_market removed in favor of bot/core/market_profiles.py
 
-    async def list_active_markets(self, limit: int = 20) -> list[dict]:
+    async def list_active_markets(self, limit: int = 20) -> tuple[list[dict], int]:
+        settings = get_settings()
+        profile = get_profile(settings.market_profile)
+        matcher = ProfileMatcher(profile)
+        
         async with httpx.AsyncClient() as client:
             # Fetch a large batch to ensure we find our narrow target universe
-            # using order=createdAt&ascending=false to get the NEWEST markets (15m markets exist here)
+            # using order=createdAt&ascending=false to get the NEWEST markets
             res = await client.get(f"https://gamma-api.polymarket.com/markets?limit=500&active=true&closed=false&order=createdAt&ascending=false")
             res.raise_for_status()
             data = res.json()
@@ -23,7 +22,7 @@ class PolymarketPublicClient:
             import json
             result = []
             for m in markets:
-                if not self._is_target_market(m):
+                if not matcher.matches(m):
                     continue
 
                 outcomes_raw = m.get("outcomes", [])
@@ -52,7 +51,7 @@ class PolymarketPublicClient:
                 })
                 if len(result) >= limit:
                     break
-            return result
+            return result, len(markets)
 
     async def fetch_book(self, token_id: str) -> dict:
         async with httpx.AsyncClient() as client:

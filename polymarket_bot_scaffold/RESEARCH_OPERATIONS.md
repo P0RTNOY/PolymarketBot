@@ -238,3 +238,76 @@ Every `features_json` blob contains these keys (plus others):
 | `recent_movement` | `current.midpoint - previous.midpoint` |
 | `minutes_to_expiry` | Estimated minutes until market resolves |
 
+
+---
+
+### Phase 12.6: Running a BTC 1h Challenger Collection Window
+
+This phase operationalizes the BTC 1h challenger experiment to ensure a clean 5-7 day evaluation window.
+
+#### 1. Initialize the Challenger
+Run this ONCE to set the experiment identity and freeze the config:
+```bash
+make challenger-init PROFILE=btc_1h_direction LABEL="btc_1h_exp1"
+```
+This creates `challenger_metadata.json` and the experiment manifest in the profile directory.
+
+#### 2. Monitor Collection
+Verify the scanner is actively collecting data for the profile:
+```bash
+make challenger-check PROFILE=btc_1h_direction
+```
+Check for:
+- [ ] `✅ Manifest EXISTS`
+- [ ] `✅ Metadata EXISTS`
+- [ ] `✅ Snapshot Freshness: FRESH`
+
+#### 3. Daily Evaluation
+Generate the daily replay and summary for the challenger:
+```bash
+make daily-report PROFILE=btc_1h_direction DATE=YYYY-MM-DD
+```
+Verify the output lands in `results/profiles/btc_1h_direction/daily/`.
+
+#### 4. Final Comparison & Decision
+After 5-7 days, compare the challenger against the ETH 15m baseline:
+```bash
+make compare-challenger START=YYYY-MM-DD END=YYYY-MM-DD
+```
+
+**Decision Rules for Pivoting**:
+- **Insufficient Data**: If BTC 1h has < 100 snapshots or < 10 signals, DO NOT PIVOT.
+- **Pivoting to BTC 1h**: Justified if BTC 1h score is > 10 pts higher than ETH 15m and:
+    - `pct_snapshots_meeting_exec_conditions` > 40%
+    - `candidate_to_tradeable_rate` is meaningfully higher.
+- **Staying with ETH 15m**: If scores are comparable (diff < 10).
+
+> [!IMPORTANT]
+> Do NOT change strategy, execution, or risk logic during the collection window. Any change requires a new manifest and resets the experiment clock.
+
+---
+
+## Running Challenger Experiments (Phase 12.5)
+
+To test a new market universe (challenger) without contaminating the primary research baseline:
+
+1.  **Initialize a new manifest** for the challenger profile:
+    ```bash
+    make init-manifest PROFILE=btc_1h_direction LABEL="btc_challenger_v1"
+    ```
+    This creates `results/profiles/btc_1h_direction/manifests/experiment_manifest.json`.
+
+2.  **Run daily reports** for specific dates:
+    ```bash
+    make daily-report PROFILE=btc_1h_direction DATE=2026-03-22
+    ```
+    Outputs (JSON/CSV) land in `results/profiles/btc_1h_direction/daily/`.
+
+3.  **View challenger summary**:
+    ```bash
+    make summary PROFILE=btc_1h_direction
+    ```
+    Reads strictly from `results/profiles/btc_1h_direction/summaries/daily_summary.csv`.
+
+> [!IMPORTANT]
+> The default `PROFILE` is `eth_15m_direction`. Always specify the `PROFILE` variable to target a challenger universe.

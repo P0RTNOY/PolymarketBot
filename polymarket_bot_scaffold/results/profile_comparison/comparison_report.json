@@ -1,0 +1,49 @@
+{
+  "comparison_metadata": {
+    "generated_at": "2026-03-26T07:29:37.317950",
+    "start_date": "2026-03-22T00:00:00",
+    "end_date": "2026-03-26T07:29:37.302549",
+    "profiles_compared": [
+      "eth_15m_direction",
+      "btc_15m_direction",
+      "btc_1h_direction",
+      "eth_daily_direction"
+    ]
+  },
+  "profile_results": {
+    "eth_15m_direction": {
+      "profile_name": "eth_15m_direction",
+      "profile_description": "ETH 15-minute directional markets (Up/Down/Above/Below)",
+      "data_status": "no_data",
+      "comparison_eligible": false,
+      "eligibility_reason": "No snapshots found in the given range"
+    },
+    "btc_15m_direction": {
+      "profile_name": "btc_15m_direction",
+      "profile_description": "BTC 15-minute directional markets (Up/Down/Above/Below)",
+      "data_status": "no_data",
+      "comparison_eligible": false,
+      "eligibility_reason": "No snapshots found in the given range"
+    },
+    "btc_1h_direction": {
+      "profile_name": "btc_1h_direction",
+      "profile_description": "BTC 1-hour directional markets",
+      "data_status": "no_data",
+      "comparison_eligible": false,
+      "eligibility_reason": "No snapshots found in the given range"
+    },
+    "eth_daily_direction": {
+      "profile_name": "eth_daily_direction",
+      "profile_description": "ETH daily directional markets",
+      "data_status": "no_data",
+      "comparison_eligible": false,
+      "eligibility_reason": "No snapshots found in the given range"
+    }
+  },
+  "ranking": {
+    "ranked_profiles": [],
+    "top_profile": null,
+    "ranking_rationale": "No profiles were eligible for ranking due to missing or insufficient data.",
+    "recommended_next_profile_for_collection": null
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "market_profile": "btc_1h_direction",
+  "experiment_label": "btc_1h_challenger_v1",
+  "config_hash": "6b190416d947f46f",
+  "created_at": "2026-03-26T09:12:20.195766+00:00",
+  "config": {
+    "market_profile": "btc_1h_direction",
+    "active_strategies": [
+      "eth_direction_15m_v1",
+      "eth_direction_15m_v2"
+    ],
+    "fill_model_version": "v2_passive_0.30",
+    "replay_engine_version": "v2",
+    "seed": 42,
+    "runs": 20,
+    "risk_settings": {
+      "max_open_positions": 5,
+      "max_notional_exposure_usd": 100.0,
+      "max_market_exposure_usd": 20.0,
+      "max_daily_loss_usd": 30.0,
+      "cooldown_after_losses": 3,
+      "cooldown_mins": 60.0,
+      "max_spread": 0.02,
+      "min_depth_usd": 50.0,
+      "min_edge": 0.04,
+      "signal_staleness_seconds": 15,
+      "min_time_to_close_mins": 2.0
+    },
+    "file_hashes": {
+      "eth_direction_15m.py": "03a594232ec2",
+      "eth_direction_15m_v2.py": "e80836b199c9",
+      "manager.py": "85c6db05110e",
+      "config.py": "9f8a80d3901a"
+    }
+  }
+}

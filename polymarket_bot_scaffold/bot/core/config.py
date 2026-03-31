@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     polymarket_api_secret: str = ""
     polymarket_passphrase: str = ""
 
+    # Phase 12.3C: Market Profiles
+    market_profile: str = "eth_15m_direction"
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()

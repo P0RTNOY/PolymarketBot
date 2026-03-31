@@ -43,13 +43,15 @@ from scripts.experiment_config import (
 )
 from scripts.daily_summary import append_daily_rows, print_console_summary
 from scripts.replay_paper_day import run_single, load_market_resolutions, db_row_to_pydantic
+from bot.core.paths import get_profile_manifest_path, get_profile_summary_path, resolve_daily_output_paths
+from bot.core.config import get_settings
 from bot.data.repositories.snapshots import SnapshotRepository
+from bot.data.repositories.reports import ReportRepository
 from bot.strategies.eth_direction_15m import ETHDirection15mStrategy
 from bot.strategies.eth_direction_15m_v2 import ETHDirection15mV2Strategy
 
 STRATEGIES = [ETHDirection15mStrategy(), ETHDirection15mV2Strategy()]
-MANIFEST_PATH = Path("results/manifests/experiment_manifest.json")
-SUMMARY_PATH  = Path("results/summaries/daily_summary.csv")
+DEFAULT_PROFILE = get_settings().market_profile
 
 import random, statistics
 
@@ -62,15 +64,29 @@ def _safe_range_filename(start: date, end: date) -> str:
     return f"replay_{start.isoformat()}_to_{end.isoformat()}"
 
 
-def resolve_out_paths(base_name: str, is_range: bool = False) -> tuple[Path, Path]:
+def resolve_out_paths_legacy(base_name: str, is_range: bool = False) -> tuple[Path, Path]:
+    """Legacy helper for backward compatibility."""
     subdir = "weekly" if is_range else "daily"
     json_path = Path(f"results/{subdir}/{base_name}.json")
     csv_path  = Path(f"results/{subdir}/{base_name}.csv")
     return json_path, csv_path
 
 
-def check_manifest_and_warn(config_hash: str) -> tuple[dict | None, str]:
-    manifest = load_manifest(MANIFEST_PATH)
+def check_manifest_and_warn(config_hash: str, manifest_path: Path, profile: str) -> tuple[dict | None, str]:
+    manifest = load_manifest(manifest_path)
+    
+    # Safety Check: Profile Mismatch
+    if manifest:
+        manifest_profile = manifest.get("market_profile")
+        if manifest_profile and manifest_profile != profile:
+            print(f"\n❌ PROFILE MISMATCH ERROR")
+            print(f"   Active profile: {profile}")
+            print(f"   Manifest profile: {manifest_profile}")
+            print(f"   Manifest path: {manifest_path}")
+            print(f"\n   To prevent data contamination, this run is ABORTING.")
+            print(f"   Please use --profile {manifest_profile} or initialize a new manifest for {profile}.")
+            sys.exit(1)
+
     mismatch, warnings = is_config_mismatch(config_hash, manifest)
     if warnings:
         print("\n" + "\n".join(warnings))
@@ -90,6 +106,7 @@ def run_date_range(
     is_range: bool,
     config_hash: str,
     config_label: str,
+    **kwargs
 ) -> None:
     import csv as _csv
 
@@ -155,8 +172,10 @@ def save_outputs(
     settlement_mode: str,
     config_hash: str,
     config_label: str,
+    **kwargs
 ) -> tuple[Path, Path]:
-    json_path, csv_path = resolve_out_paths(base_name, is_range)
+    profile = kwargs.get("market_profile", "eth_15m_direction")
+    json_path, csv_path = resolve_daily_output_paths(profile, base_name, is_range)
     json_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Serialise per-strategy (defaultdict → dict)
@@ -177,6 +196,7 @@ def save_outputs(
             "seed":              seed,
             "fill_model":        FILL_MODEL_VERSION,
             "settlement_mode":   settlement_mode,
+            "market_profile":    kwargs.get("market_profile", "unknown"),
             "config_hash":       config_hash,
             "config_label":      config_label,
             "snapshots_loaded":  sum(len(t) for t in all_trades) // max(1, runs * len(last_per_strategy)),
@@ -204,11 +224,16 @@ def main() -> None:
     parser.add_argument("--date",      type=str, default=None)
     parser.add_argument("--start",     type=str, default=None)
     parser.add_argument("--end",       type=str, default=None)
-    parser.add_argument("--seed",      type=int, default=42)
     parser.add_argument("--runs",      type=int, default=20)
     parser.add_argument("--fill-prob", type=float, default=0.30)
-    parser.add_argument("--manifest",  type=str, default=str(MANIFEST_PATH))
+    parser.add_argument("--profile",   type=str, default=DEFAULT_PROFILE)
+    parser.add_argument("--manifest",  type=str, default=None)
+    parser.add_argument("--summary",   type=str, default=None)
     args = parser.parse_args()
+
+    # Path resolution
+    manifest_path = Path(args.manifest) if args.manifest else get_profile_manifest_path(args.profile)
+    summary_path  = Path(args.summary) if args.summary else get_profile_summary_path(args.profile)
 
     # Parse date range
     if args.date:
@@ -229,20 +254,25 @@ def main() -> None:
         base_name  = _safe_filename(yesterday)
         print(f"No date specified — defaulting to yesterday ({yesterday})")
 
-    print(f"\n{'='*65}")
-    print(f"  DAILY RESEARCH RUN  {start_dt.date()} → {end_dt.date()}")
-    print(f"  seed={args.seed}  runs={args.runs}  fill_prob={args.fill_prob}")
-    print(f"{'='*65}")
-
     # Config fingerprint + mismatch check
-    config_hash, _ = compute_config_hash(args.seed, args.runs)
-    manifest, config_label = check_manifest_and_warn(config_hash)
+    config_hash, _ = compute_config_hash(args.seed, args.runs, market_profile=args.profile)
+    manifest, config_label = check_manifest_and_warn(config_hash, manifest_path, args.profile)
 
+    # Header visibility
+    print(f"\n{'━'*65}")
+    print(f"  🚀 RESEARCH RUN: {args.profile.upper()}")
+    print(f"  Label   : {config_label}")
+    print(f"  Config  : {str(config_hash)[:12]} ({'FROZEN' if manifest_path.exists() else 'DYNAMIC'})")
+    print(f"  Window  : {start_dt.date()} -> {end_dt.date()}")
+    print(f"  seed={args.seed}  runs={args.runs}  fill_prob={args.fill_prob}")
+    print(f"{'━'*65}\n")
+
+    print(f"  profile     : {args.profile}")
     print(f"  config_hash : {config_hash}")
     print(f"  label       : {config_label}")
 
     # Check if output already exists under the same config
-    json_path, csv_path = resolve_out_paths(base_name, is_range)
+    json_path, csv_path = resolve_daily_output_paths(args.profile, base_name, is_range)
     if json_path.exists():
         try:
             existing_meta = json.loads(json_path.read_text()).get("meta", {})
@@ -251,7 +281,7 @@ def main() -> None:
                 print(f"\n⚠  Output file already exists with a DIFFERENT config hash.")
                 print(f"   Existing: {existing_hash}  Current: {config_hash}")
                 new_base = f"{base_name}_{config_hash[:8]}"
-                json_path, csv_path = resolve_out_paths(new_base, is_range)
+                json_path, csv_path = resolve_daily_output_paths(args.profile, new_base, is_range)
                 print(f"   Writing to alternative path: {json_path}\n")
             else:
                 print(f"  ℹ  Overwriting existing output (same config hash).")
@@ -263,10 +293,15 @@ def main() -> None:
         seed=args.seed, runs=args.runs, fill_prob=args.fill_prob,
         is_range=is_range,
         config_hash=config_hash, config_label=config_label,
+        market_profile=args.profile
     )
     if result is None:
         return
     mc_pnl, last_per_strategy, all_trades, settlement_mode = result
+
+    # Phase 12.3B — Fetch Universe Quality
+    reports_repo = ReportRepository()
+    universe_quality = reports_repo.get_universe_quality(start=start_dt, end=end_dt)
 
     # Compact console summary
     print_console_summary(
@@ -277,6 +312,9 @@ def main() -> None:
         seed=args.seed,
         settlement_mode=settlement_mode,
         config_hash=config_hash,
+        universe_quality=universe_quality,
+        market_profile=args.profile,
+        config_label=config_label
     )
 
     # Save structured outputs
@@ -287,6 +325,7 @@ def main() -> None:
         runs=args.runs, seed=args.seed, fill_prob=args.fill_prob,
         settlement_mode=settlement_mode,
         config_hash=config_hash, config_label=config_label,
+        market_profile=args.profile
     )
     print(f"  💾 JSON  : {json_out}")
     print(f"  💾 CSV   : {csv_out}")
@@ -301,9 +340,11 @@ def main() -> None:
         settlement_mode=settlement_mode,
         config_hash=config_hash,
         config_label=config_label,
-        summary_path=SUMMARY_PATH,
+        summary_path=summary_path,
+        universe_quality=universe_quality,
+        market_profile=args.profile
     )
-    print(f"  📋 Summary appended to: {SUMMARY_PATH}\n")
+    print(f"  📋 Summary appended to: {summary_path}\n")
 
 
 if __name__ == "__main__":

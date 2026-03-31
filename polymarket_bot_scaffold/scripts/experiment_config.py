@@ -31,7 +31,7 @@ def _file_hash(path: Path) -> str:
     return hashlib.md5(path.read_bytes()).hexdigest()[:12]
 
 
-def compute_config_hash(seed: int | None, runs: int) -> tuple[str, dict]:
+def compute_config_hash(seed: int | None, runs: int, market_profile: str = "eth_15m_direction") -> tuple[str, dict]:
     """
     Returns (config_hash, config_dict).
     config_hash is a short hex string unique to the current configuration.
@@ -57,6 +57,7 @@ def compute_config_hash(seed: int | None, runs: int) -> tuple[str, dict]:
     }
 
     config_dict = {
+        "market_profile":         market_profile,
         "active_strategies":      ["eth_direction_15m_v1", "eth_direction_15m_v2"],
         "fill_model_version":     FILL_MODEL_VERSION,
         "replay_engine_version":  REPLAY_ENGINE_VERSION,
@@ -91,7 +92,8 @@ def is_config_mismatch(current_hash: str, manifest: dict | None) -> tuple[bool, 
         ]
         if manifest.get("config", {}).get("file_hashes"):
             from scripts.experiment_config import compute_config_hash
-            _, current_cfg = compute_config_hash(None, 1)
+            prev_profile = manifest.get("config", {}).get("market_profile", "unknown")
+            _, current_cfg = compute_config_hash(None, 1, market_profile=prev_profile)
             prev_hashes = manifest["config"]["file_hashes"]
             for fname, prev_h in prev_hashes.items():
                 cur_h = current_cfg["file_hashes"].get(fname, "missing")
@@ -106,8 +108,10 @@ def write_manifest(
     config_hash: str,
     config_dict: dict,
     label: str,
+    market_profile: str,
 ) -> dict:
     manifest = {
+        "market_profile": market_profile,
         "experiment_label": label,
         "config_hash": config_hash,
         "created_at": datetime.now(timezone.utc).isoformat(),

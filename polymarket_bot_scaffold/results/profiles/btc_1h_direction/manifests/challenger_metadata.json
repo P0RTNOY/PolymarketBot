@@ -1,0 +1,9 @@
+{
+    "market_profile": "btc_1h_direction",
+    "experiment_label": "btc_1h_challenger_v1",
+    "initialized_at": "2026-03-26T09:12:20.196484+00:00",
+    "intended_duration_days": 7,
+    "baseline_reference_profile": "eth_15m_direction",
+    "manifest_hash": "6b190416d947f46f",
+    "notes": "Phase 12.6 challenger initialization for btc_1h_direction."
+}

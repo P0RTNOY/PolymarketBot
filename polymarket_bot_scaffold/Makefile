@@ -1,13 +1,18 @@
-SHELL := /bin/bash
-COMPOSE := docker compose
-DATE    ?= $(shell date -u +%Y-%m-%d)
-START   ?= $(shell date -u -v-7d +%Y-%m-%d)
-END     ?= $(shell date -u +%Y-%m-%d)
+COMPOSE ?= docker compose
+PROFILE ?= eth_15m_direction
+DATE    ?= $(shell date -v-1d +%Y-%m-%d)
+START   ?= $(shell date -v-7d +%Y-%m-%d)
+END     ?= $(shell date +%Y-%m-%d)
 SEED    ?= 42
 RUNS    ?= 20
+LABEL   ?= research_exp_$(DATE)
+BASELINE ?= eth_15m_direction
+CHALLENGER ?= btc_1h_direction
+DURATION ?= 7
 
 .PHONY: help up down restart logs status health build \
         init-manifest daily-report weekly-report summary \
+        challenger-init challenger-check compare-challenger \
         last-snapshot-count morning-check clean-volumes
 
 help: ## Show all available commands
@@ -64,18 +69,28 @@ monitor: ## Run morning-check in a continuous loop every 60 seconds
 
 # ── Research commands ─────────────────────────────────────────────────────────
 
-init-manifest: ## Freeze the experiment config (run ONCE before collecting data)
+init-manifest: ## Initialize research manifest
 	@python3 scripts/generate_manifest.py \
-		--label "eth_15m_v1v2_exp1_$(DATE)" \
+		--label "$(LABEL)" \
 		--seed $(SEED) \
-		--runs $(RUNS)
+		--runs $(RUNS) \
+		--profile $(PROFILE)
+
+challenger-init: ## Initialize a challenger experiment window
+	@python3 scripts/init_challenger_experiment.py \
+		--profile $(PROFILE) \
+		--label "$(LABEL)" \
+		--seed $(SEED) \
+		--runs $(RUNS) \
+		--duration $(DURATION)
 
 daily-report: ## Run the daily replay for a specific UTC date (DATE=YYYY-MM-DD)
 	@echo "  🔍  Running replay for date=$(DATE) seed=$(SEED) runs=$(RUNS)"
 	@python3 scripts/run_daily_research.py \
 		--date $(DATE) \
 		--seed $(SEED) \
-		--runs $(RUNS)
+		--runs $(RUNS) \
+		--profile $(PROFILE)
 
 weekly-report: ## Run a multi-day replay (START and END in YYYY-MM-DD)
 	@echo "  🔍  Running weekly replay from $(START) to $(END)"
@@ -83,18 +98,25 @@ weekly-report: ## Run a multi-day replay (START and END in YYYY-MM-DD)
 		--start $(START) \
 		--end $(END) \
 		--seed $(SEED) \
-		--runs $(RUNS)
+		--runs $(RUNS) \
+		--profile $(PROFILE)
 
 summary: ## Show the rolling daily summary CSV
-	@if [ -f results/summaries/daily_summary.csv ]; then \
-		echo ""; \
-		echo "  Rolling research summary (results/summaries/daily_summary.csv):"; \
-		echo ""; \
-		column -t -s, results/summaries/daily_summary.csv; \
-		echo ""; \
-	else \
-		echo "  No summary yet. Run 'make daily-report' first."; \
-	fi
+	@echo "Last 14 days of research history ($(PROFILE)):"
+	@python3 -c "import pandas as pd; \
+	from bot.core.paths import get_profile_summary_path; \
+	path = get_profile_summary_path('$(PROFILE)'); \
+	print(pd.read_csv(path).tail(14).to_string(index=False)) if path.exists() else print('No summary found for $(PROFILE).')"
+
+challenger-check: ## Health check for a challenger experiment
+	@python3 scripts/challenger_check.py --profile $(PROFILE)
+
+compare-challenger: ## Compare challenger vs baseline (START/END required)
+	@python3 scripts/compare_market_profiles.py \
+		--baseline $(BASELINE) \
+		--challenger $(CHALLENGER) \
+		--start $(START) \
+		--end $(END)
 
 # ── Danger zone ───────────────────────────────────────────────────────────────
 
